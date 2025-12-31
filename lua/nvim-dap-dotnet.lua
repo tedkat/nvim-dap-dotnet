@@ -5,14 +5,16 @@ local M = {}
 
 local Path = require("plenary.path")
 local Snacks = require("snacks")
-local is_windows = vim.fn.has("win64") or vim.fn.has("win32") or vim.fn.has("win16")
+local is_windows = function()
+	return (vim.fn.has("win64") or vim.fn.has("win32") or vim.fn.has("win16")) == 1
+end
 
 -- Vim Regex Strings identify start and end match for line
 local PropertiesMatch = {
 	Assembly = "<AssemblyName>(.-)</AssemblyName>",
 	Artifacts = "<ArtifactsPath>%$%(MSBuildThisFileDirectory%)(.-)</ArtifactsPath>",
 	SLNXProject = 'Project Path="(.-)"',
-	SLNProject = 'Project%(".="%) = ".-", "(.-)"',
+	SLNProject = 'Project%(".-"%) = ".-", "(.-%.csproj)"',
 }
 
 local function D(info)
@@ -79,10 +81,14 @@ local function get_property_matches_from_file(filepath, property_match)
 		return {}
 	end
 	for line in file:lines() do
+		if line:match("<!%-%-%s+<ArtifactsPath>") then
+			goto continue
+		end
 		local match = line:match(property_match)
 		if match then
 			table.insert(properties, match)
 		end
+		::continue::
 	end
 	file:close()
 	return properties
@@ -144,7 +150,7 @@ end
 -- Current Info
 local function current_info()
 	local buffer_file_name = vim.api.nvim_buf_get_name(0)
-	if is_windows then
+	if is_windows() then
 		buffer_file_name = string.gsub(buffer_file_name, "/", "\\\\")
 	end
 	local file_path = Path:new(buffer_file_name)
@@ -230,6 +236,9 @@ local function projects_info(current, solution)
 			local csprojs = get_property_matches_from_file(solution.file, property_match)
 			if #csprojs > 0 then
 				for _, csproj in ipairs(csprojs) do
+					if not is_windows() then
+						csproj = string.gsub(csproj, "\\", "/")
+					end
 					local csproj_path = Path:new(csproj)
 					local project = project_info(csproj_path:absolute())
 					if project.file then
